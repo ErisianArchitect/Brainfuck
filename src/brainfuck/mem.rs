@@ -71,6 +71,9 @@ impl MemoryBlock {
             data[offset] = value;
             self.used = 1;
         }
+        // In case you think it's weird that this is down here rather than at the location
+        // where self.used might become 0, don't worry. The reason this is here is because
+        // otherwise it wouldn't be able to assign to data because it's borrowed up above.
         if self.used == 0 && self.data.is_some() {
             self.data = None;
         }
@@ -82,7 +85,7 @@ impl MemoryBlock {
     }
 }
 
-struct Memory {
+pub struct Memory {
     blocks: HashMap<usize, MemoryBlock>,
     preallocated: Box<[u8; Memory::PREALLOCATED_BLOCK_SIZE]>,
 }
