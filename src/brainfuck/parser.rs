@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, panic};
 
 macro_rules! op {
     [<] => {op![left]};
@@ -69,10 +69,6 @@ macro_rules! noop {
     [<+-<+->>] => {};
 }
 
-pub struct Program {
-    instructions: Box<[Instruction]>,
-}
-
 // [-]>,[>,]<[<]>
 #[inline(always)]
 fn check_readline(code: &[OpCode]) -> Option<NonZeroUsize> {
@@ -99,39 +95,43 @@ fn check_endread(code: &[OpCode]) -> Option<NonZeroUsize> {
     }
     None
 }
+
 // [<] | [>] | [<<<] | [>>>] etc.
-fn check_movetozero(code: &[OpCode]) -> Option<(usize, Instruction)> {
-    // If I wrote my code correctly, this test should always pass.
-    if code[0] == op![jump] {
-        let direction = match code[1] {
-            op![<] => Direction::Left,
-            op![>] => Direction::Right,
-            // Early return
+fn check_movetozero(code: &[OpCode]) -> Option<(Direction, u32)> {
+    // Because this code is called from inside Program::Load, it can assume
+    // that the code is correct. It can also assume that the first instruction
+    // is Jump.
+    let lr = op![left,right];
+    let dir = code[1];
+    if !lr.contains(&dir) {
+        return None;
+    }
+    let mut count = 0;
+    for &inst in code[1..].iter() {
+        match inst {
+            op![return] => {
+                let dir = match dir {
+                    op![left] => Direction::Left,
+                    op![right] => Direction::Right,
+                    _ => panic!("This should be unreachable."),
+                };
+                return Some((dir, count));
+            },
+            op => if op == dir {
+                count += 1;
+            },
             _ => return None,
-        };
-        let mut count : usize = 1;
-        for &inst in code[2..].iter() {
-            // Unlikely to happen.
-            match (direction, inst) {
-                (Direction::Left, op![<]) => count += 1,
-                (Direction::Right, op![>]) => count += 1,
-                (_, op![return]) => break,
-                _ => return None,
-            }
         }
-        // Just in case someone decides they want to cripple this program.
-        if count > u32::MAX as usize  {
-            println!("Sorry, you're not allowed to use {} move operations. That's just too much.", count);
-            return None;
-        }
-        Some((count + 2, Instruction::MoveToZero(direction, count as u32)))
     }
-    else {
-        None
-    }
+    None
+}
+
+pub struct Program {
+    pub instructions: Box<[Instruction]>,
 }
 
 impl Program {
+
     pub fn load(source: &str) -> Result<Program, SyntaxError> {
         // TODO: Add parsing for Noop instructions.
         use seq::*;
@@ -193,16 +193,37 @@ impl Program {
                 }
                 // , or . (read or write)
                 action @ op![read|write] => {
-                    match action {
-                        // ,
-                        op![read] => {
-                            todo!("Must write code for reading instruction parsing.")
-                        },
-                        // .
-                        op![write] =>{
-                            todo!("Must write code for writing instruction parsing.")
-                        },
-                        _ => unreachable!("Truly remarkable. What have you done?"),
+
+                    let more = code.len() - inst_idx;
+                    if more >= 3
+                    && code[inst_idx+1] == op![right]
+                    && code[inst_idx+2] == action {
+                        inst_idx += 3;
+                        let mut count = 1;
+                        //?>?
+                        while (inst_idx + 2) <= code.len()
+                        && code[inst_idx] == op![right]
+                        && code[inst_idx+1] == action {
+                            count += 1;
+                            inst_idx += 2;
+                        }
+                        program.push(match action {
+                            op![read] => Instruction::ReadBuf(count),
+                            op![write] => Instruction::Writebuf(count),
+                            _ => unreachable!(),
+                        });
+                    } else {
+                        let start = inst_idx;
+                        inst_idx += 1;
+                        while inst_idx < code.len() && code[inst_idx] == action {
+                            inst_idx += 1;
+                        }
+                        let count = inst_idx - start;
+                        program.push(match action {
+                            op![read] => Instruction::Read(count as u32),
+                            op![write] => Instruction::Write(count as u32),
+                            _ => unreachable!(),
+                        });
                     }
                 }
                 // [
@@ -216,9 +237,9 @@ impl Program {
                     } else if let Some(length) = check_reset(&code[inst_idx..]) {
                         program.push(Instruction::Reset);
                         inst_idx += length.get();
-                    } else if let Some((length, result)) = check_movetozero(&code[inst_idx..]) {
-                        program.push(result);
-                        inst_idx += length as usize;
+                    } else if let Some((dir, count)) = check_movetozero(&code[inst_idx..]) {
+                        program.push(Instruction::MoveToZero(dir, count));
+                        inst_idx += (count + 2) as usize;
                     } else if let Some(length) = check_readline(&code[inst_idx..]) {
                         program.push(Instruction::ReadLine);
                         inst_idx += length.get();
@@ -242,7 +263,7 @@ impl Program {
                         program.push(Instruction::JumpZ(0));
                         inst_idx += 1;
                     }
-                },
+                }
                 // ]
                 op![return] => {
                     // The index of the matching JumpZ instruction exists on the top of
@@ -261,7 +282,7 @@ impl Program {
                         // This should be impossible because the code should have already been verified.
                         panic!("Mismatched bracket.");
                     }
-                },
+                }
                 _ => (),
             }
         }
@@ -397,7 +418,9 @@ pub enum Instruction {
     // Cell Mutation
     Add(u8), // wrapped value of combined +/- instructions
     // IO
+    // Repititions of ',' instructions.
     Read(u32),
+    // Repitions of '.' instruction
     Write(u32),
     // There are also IO cases where you may read many bytes
     // ex: ,>,>,>, => Readbuf(4)
@@ -557,6 +580,9 @@ mod seq {
 
     pub const END_READ_SEQ: &[OpCode] = &op![jump,in,return];
 
+    pub const BUFFERED_READ_SEQ: &[OpCode] = &op![right, read];
+    pub const BUFFERED_WRITE_SEQ: &[OpCode] = &op![right, write];
+
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -573,6 +599,28 @@ pub enum SyntaxError {
         line_no: u32,
         col_no: u32,
     },
+}
+
+impl  std::fmt::Display for Instruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            Instruction::Add(count) => write!(f, "Instruction::Add({count})"),
+            Instruction::EndRead => write!(f, "Instruction::EndRead"),
+            Instruction::JumpZ(idx) => write!(f, "Instruction::JumpZ({idx})"),
+            Instruction::Move(count) => write!(f, "Instruction::Move({count})"),
+            Instruction::MoveLeft => write!(f, "Instruction::MoveLeft"),
+            Instruction::MoveRight => write!(f, "Instruction::MoveRight"),
+            Instruction::MoveToZero(dir, count)=> write!(f, "Instruction::MoveToZero({},{count})", match dir { &Direction::Left => "Left", &Direction::Right => "Right" }),
+            Instruction::Noop(count, pat) => write!(f, "Instruction::Noop({count})"),
+            Instruction::Read(count)  => write!(f, "Instruction::Read({count})"),
+            Instruction::ReadBuf(count) => write!(f, "Instruction::ReadBuf({count})"),
+            Instruction::ReadLine => write!(f, "Instruction::ReadLine"),
+            Instruction::Reset => write!(f, "Instruction::Reset"),
+            Instruction::ReturnIf(addr) => write!(f, "Instruction::ReturnIf({addr})"),
+            Instruction::Write(count) => write!(f, "Instruction::Write({count})"),
+            Instruction::Writebuf(count) => write!(f, "Instruction::WriteBuf({count})"),
+        }
+    }
 }
 
 impl std::fmt::Display for SyntaxError {

@@ -106,7 +106,7 @@ impl Memory {
         offset.div_euclid(MemoryBlock::BLOCK_SIZE)
     }
 
-    pub fn  virtual_addr(offset: usize) -> usize {
+    pub fn virtual_addr(offset: usize) -> usize {
         offset.wrapping_add(Memory::VIRTUAL_OFFSET)
     }
 

@@ -775,18 +775,20 @@ mod tests {
     #[test]
     fn quick_test() {
         //use tests::Quick;
-        let mut a = Quick::One(1312);
-        match a {
-            Quick::One(_) => {
-                println!("One");
+        let mut a = 1;
+        let mut b = 2;
+        let mut c = 3;
+        let matcher = |n| {
+            match n {
+                1 => println!("One"),
+                2 => println!("Two"),
+                3.. => println!("Three or more."),
+                _ => unreachable!("This won't be possible."),
             }
-            Quick::Two(_) => {
-                println!("Two");
-            }
-            Quick::Three(_) => {
-                println!("Three");
-            }
-        } 
+        };
+        matcher(a);
+        matcher(b);
+        matcher(c);
     }
 
     fn plus_one(value: i32) -> i32 {

@@ -24,13 +24,7 @@ macro_rules! size {
 }
 
 fn main() {
-    loop {
-        std::io::stdout().lock().write_all(b">>> ");
-        std::io::stdout().flush();
-        let s = bf_read_line();
-        println!("{}", s);
-    }
-
+    use brainfuck::parser::Program;
     //reader_test();
 }
 
