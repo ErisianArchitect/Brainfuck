@@ -196,13 +196,13 @@ impl Program {
                     match action {
                         // ,
                         op![read] => {
-
+                            todo!("Must write code for reading instruction parsing.")
                         },
                         // .
                         op![write] =>{
-                            
+                            todo!("Must write code for writing instruction parsing.")
                         },
-                        _ => (),
+                        _ => unreachable!("Truly remarkable. What have you done?"),
                     }
                 }
                 // [
@@ -210,60 +210,58 @@ impl Program {
                     // There are multiple things that could happen at this point.
                     // Since there are multiple ways the following tokens can be
                     // interpreted, we will try our best to test for those cases before hand.
-                    inst_idx += if let Some(length) = check_endread(&code[inst_idx..]) {
+                    if let Some(length) = check_endread(&code[inst_idx..]) {
                         program.push(Instruction::EndRead);
-                        length.get()
+                        inst_idx += length.get();
                     } else if let Some(length) = check_reset(&code[inst_idx..]) {
                         program.push(Instruction::Reset);
-                        length.get()
+                        inst_idx += length.get();
                     } else if let Some((length, result)) = check_movetozero(&code[inst_idx..]) {
                         program.push(result);
-                        length as usize
+                        inst_idx += length as usize;
                     } else if let Some(length) = check_readline(&code[inst_idx..]) {
                         program.push(Instruction::ReadLine);
-                        length.get()
-                    }
-                    // This means that no special syntax was found.
-                    // If this is the case, we want to push the index of the next instruction
-                    // into the `jump_stack`, which is a vector that is used to help in matching
-                    // of square brackets.
-                    // When the matching close bracket is found, the index of the open bracket is
-                    // popped from `jump_stack`, then the original `JumpZ` instruction is modified
-                    // to include the index of the close bracket. The instruction for the close
-                    // bracket is also pushed into the program, and stores the index of the
-                    // JumpZ instruction.
-                    // which is `program.len()`, then push the JumpZ Instruction into `program`.
-                    // The JumpZ instruction that is pushed to program will later be modified
-                    // to include the matching end brace once that matching end brace is found.
-                    else {
+                        inst_idx += length.get();
+                    } else {
+                        // This means that no special syntax was found.
+                        // If this is the case, we want to push the index of the next instruction
+                        // into the `jump_stack`, which is a vector that is used to help in matching
+                        // of square brackets.
+                        // When the matching close bracket is found, the index of the open bracket is
+                        // popped from `jump_stack`, then the original `JumpZ` instruction is modified
+                        // to include the index of the close bracket. The instruction for the close
+                        // bracket is also pushed into the program, and stores the index of the
+                        // JumpZ instruction.
+                        // which is `program.len()`, then push the JumpZ Instruction into `program`.
+                        // The JumpZ instruction that is pushed to program will later be modified
+                        // to include the matching end brace once that matching end brace is found.
                         // push the length of the program which represents the index
                         // of the elements that is pushed on the next line.
                         jump_stack.push(program.len());
                         // Temporary variable. This will be modified later.
                         program.push(Instruction::JumpZ(0));
-                        1
-                    };
-                }
+                        inst_idx += 1;
+                    }
+                },
                 // ]
                 op![return] => {
                     // The index of the matching JumpZ instruction exists on the top of
                     // `jump_stack`.
                     if let Some(open_idx) = jump_stack.pop() {
                         let close_idx = program.len();
-                        match program[open_idx] {
-                            Instruction::JumpZ(_) => {
-                                program[open_idx] = Instruction::JumpZ(close_idx as u32);
-                                program.push(Instruction::ReturnIf(open_idx as u32));
-                                inst_idx += 1;
-                            },
-                            _ => panic!("I'm not sure how this happened, but the index popped off the top of jump_stack was an invalid instruction."),
+                        if let Instruction::JumpZ(jump_idx) = &mut program[open_idx] {
+                            *jump_idx = close_idx as u32;
+                            program.push(Instruction::ReturnIf(open_idx as u32));
+                            inst_idx += 1;
+                        } else {
+                            unreachable!("This shouldn't have happened.");
                         }
                     }
                     else {
                         // This should be impossible because the code should have already been verified.
                         panic!("Mismatched bracket.");
                     }
-                }
+                },
                 _ => (),
             }
         }
@@ -278,7 +276,7 @@ fn lex(source: &str) -> Result<Vec<OpCode>, SyntaxError> {
     if source.is_empty() {
         return Err(SyntaxError::NoInstructions);
     }
-    let mut instructions = Vec::new();
+    let mut instructions: Vec<OpCode> = Vec::new();
     let mut stack_index = 0;
     let mut open_index = 0;
     let mut open_line_no = 0;
@@ -337,10 +335,10 @@ fn lex(source: &str) -> Result<Vec<OpCode>, SyntaxError> {
 
 /// Verifies that the provided source string can be interpreted
 /// as a valid Brainfuck program. It must have at least one
-/// Brainfuck instruction, and it must all brackets must be
+/// Brainfuck instruction, and all brackets must be
 /// in matching pairs.
 pub fn verify(source: &str) -> bool {
-    let mut stack_index = 0i32;
+    let mut stack_index = 0;
 
     let mut has_instruction = false;
 
@@ -351,13 +349,12 @@ pub fn verify(source: &str) -> bool {
             '[' => stack_index += 1,
             // ]
             ']' => {
-                // This means that it is mismatched.
-                match stack_index {
-                    0 => return false,
-                    1.. => has_instruction = true,
-                    _ => (),
+                if stack_index > 0 {
+                    has_instruction = true;
+                    stack_index -= 1;
+                } else {
+                    return false;
                 }
-                stack_index -= 1;
             }
             _ => (),
         }

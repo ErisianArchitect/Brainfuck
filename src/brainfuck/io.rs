@@ -240,9 +240,9 @@ mod tests {
         writer.write(154); // 0b10011010
         writer.write(171); // 0b10101011
 
+        writer.write(255);
         writer.write(225); // 0b11100001
         writer.write(154); // 0b10011010
-        writer.write(0);
         writer.write(166); // 0b10100110
 
         writer.write(b'\n');

@@ -11,6 +11,8 @@ use std::rc::Rc;
 mod printer;
 use printer::*;
 
+
+mod bf;
 mod brainfuck;
 use brainfuck::io::{BufferedReader, bf_read_line};
 

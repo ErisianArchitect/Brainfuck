@@ -766,6 +766,29 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    enum Quick {
+        One(u32),
+        Two(u32),
+        Three(u32),
+    }
+
+    #[test]
+    fn quick_test() {
+        //use tests::Quick;
+        let mut a = Quick::One(1312);
+        match a {
+            Quick::One(_) => {
+                println!("One");
+            }
+            Quick::Two(_) => {
+                println!("Two");
+            }
+            Quick::Three(_) => {
+                println!("Three");
+            }
+        } 
+    }
+
     fn plus_one(value: i32) -> i32 {
         value.wrapping_add(1)
     }
