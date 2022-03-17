@@ -1,5 +1,11 @@
 use std::{collections::HashMap};
 
+pub trait BrainfuckMemory {
+    fn get(&self, address: usize) -> u8;
+    fn set(&mut self, address: usize, value: u8);
+    fn clear(&mut self);
+}
+
 pub struct MemoryBlock {
     data: Option<Box<[u8; MemoryBlock::BLOCK_SIZE]>>,
     used: usize,
@@ -85,37 +91,24 @@ impl MemoryBlock {
     }
 }
 
-pub struct Memory {
+pub struct VirtualMemory {
     blocks: HashMap<usize, MemoryBlock>,
-    preallocated: Box<[u8; Memory::PREALLOCATED_BLOCK_SIZE]>,
+    preallocated: Box<[u8; VirtualMemory::PREALLOCATED_BLOCK_SIZE]>,
 }
 
-impl Memory {
+impl BrainfuckMemory for VirtualMemory {
 
-    pub const VIRTUAL_OFFSET: usize = MemoryBlock::BLOCK_SIZE * 2;
-    pub const PREALLOCATED_BLOCK_SIZE: usize = Memory::VIRTUAL_OFFSET * 2;
-
-    fn new() -> Memory {
-        Memory { 
-            blocks: HashMap::new(),
-            preallocated: Box::new([0_u8; Memory::PREALLOCATED_BLOCK_SIZE]),
-        }
+    fn clear(&mut self) {
+        self.blocks.clear();
+        self.preallocated.fill(0);
     }
 
-    fn block_index(offset: usize) -> usize {
-        offset.div_euclid(MemoryBlock::BLOCK_SIZE)
-    }
-
-    pub fn virtual_addr(offset: usize) -> usize {
-        offset.wrapping_add(Memory::VIRTUAL_OFFSET)
-    }
-
-    pub fn get(&self, offset: usize) -> u8 {
-        let offset = Memory::virtual_addr(offset);
-        if offset < Memory::PREALLOCATED_BLOCK_SIZE {
+    fn get(&self, offset: usize) -> u8 {
+        let offset = VirtualMemory::virtual_addr(offset);
+        if offset < VirtualMemory::PREALLOCATED_BLOCK_SIZE {
             return self.preallocated[offset];
         } else {
-            let key = Memory::block_index(offset);
+            let key = VirtualMemory::block_index(offset);
             if let Some(block) = self.blocks.get(&key) {
                 return block.get(offset);
             }
@@ -124,11 +117,11 @@ impl Memory {
     }
 
     fn set(&mut self, offset: usize, value: u8) {
-        let offset = Memory::virtual_addr(offset);
-        if offset < Memory::PREALLOCATED_BLOCK_SIZE {
+        let offset = VirtualMemory::virtual_addr(offset);
+        if offset < VirtualMemory::PREALLOCATED_BLOCK_SIZE {
             self.preallocated[offset] = value;
         } else {
-            let key = Memory::block_index(offset);
+            let key = VirtualMemory::block_index(offset);
             if let Some(block) = self.blocks.get_mut(&key) {
                 block.set(offset, value);
             } else if value != 0 {
@@ -138,5 +131,34 @@ impl Memory {
             }
         }
     }
+
+}
+
+impl VirtualMemory {
+
+    pub const VIRTUAL_OFFSET: usize = MemoryBlock::BLOCK_SIZE * 2;
+    pub const PREALLOCATED_BLOCK_SIZE: usize = VirtualMemory::VIRTUAL_OFFSET * 2;
+
+    pub fn new() -> VirtualMemory {
+        VirtualMemory { 
+            blocks: HashMap::new(),
+            preallocated: Box::new([0u8; VirtualMemory::PREALLOCATED_BLOCK_SIZE]),
+        }
+    }
+
+    fn block_index(offset: usize) -> usize {
+        offset.div_euclid(MemoryBlock::BLOCK_SIZE)
+    }
+
+    pub fn virtual_addr(offset: usize) -> usize {
+        offset.wrapping_add(VirtualMemory::VIRTUAL_OFFSET)
+    }
     
+}
+
+#[test]
+fn vmtest() {
+    let mut vm = VirtualMemory::new();
+    vm.set(0, 10);
+    println!("{}", vm.get(0));
 }

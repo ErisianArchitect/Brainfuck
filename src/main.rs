@@ -9,12 +9,12 @@ use std::ops::Index;
 use std::rc::Rc;
 
 mod printer;
+mod brainfuck;
 use printer::*;
 
-
-mod bf;
-mod brainfuck;
-use brainfuck::io::{BufferedReader, bf_read_line};
+use brainfuck::io::{BufferedReader, BrainfuckReader, BrainfuckWriter, bf_read_line};
+use brainfuck::exec::{BasicInterpreter, BrainfuckInterpreter};
+use brainfuck::parser::{self, *};
 
 
 macro_rules! size {
@@ -24,8 +24,12 @@ macro_rules! size {
 }
 
 fn main() {
-    use brainfuck::parser::Program;
     //reader_test();
+    let mut interpreter = BasicInterpreter::new();
+    let source = include_str!("sample1.txt");
+    if let Err(err) = interpreter.exec(source) {
+        println!("{}", err);
+    }
 }
 
 fn reader_test() {

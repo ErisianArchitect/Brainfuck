@@ -79,21 +79,35 @@ fn check_readline(code: &[OpCode]) -> Option<NonZeroUsize> {
 }
 // [-] or [+]
 #[inline(always)]
-fn check_reset(code: &[OpCode]) -> Option<NonZeroUsize> {
-    if code.starts_with(seq::RESET_SEQ.0) {
-        return NonZeroUsize::new(seq::RESET_SEQ.0.len());
-    } else if code.starts_with(seq::RESET_SEQ.1) {
-        return NonZeroUsize::new(seq::RESET_SEQ.1.len());
+fn check_reset_and_assign(code: &[OpCode]) -> Option<u8> {
+    if code.len() >= 3
+    && code[0] == op![jump]
+    && code[2] == op![return]
+    && op![add,sub].contains(&code[1]) {
+        // Check whether or not there is an add/sub instruction immediately
+        // after. If there is, that means that this will be an assignment
+        if code.len() >= 4 {
+            let mut sum = 0_i32;
+            for &inst in code[3..].iter() {
+                match inst {
+                    op![add] => sum += 1,
+                    op![sub] => sum -= 1,
+                    _ => break,
+                }
+            }
+            if sum != 0 {
+                return Some(sum.rem_euclid(256) as u8);
+            }
+        }
+        return Some(0);
+    } else {
+        None
     }
-    None
 }
 // [,]
 #[inline(always)]
-fn check_endread(code: &[OpCode]) -> Option<NonZeroUsize> {
-    if code.starts_with(seq::END_READ_SEQ) {
-        return NonZeroUsize::new(seq::END_READ_SEQ.len());
-    }
-    None
+fn check_endread(code: &[OpCode]) -> bool {
+    code.starts_with(seq::END_READ_SEQ)
 }
 
 // [<] | [>] | [<<<] | [>>>] etc.
@@ -108,189 +122,167 @@ fn check_movetozero(code: &[OpCode]) -> Option<(Direction, u32)> {
     }
     let mut count = 0;
     for &inst in code[1..].iter() {
-        match inst {
-            op![return] => {
-                let dir = match dir {
-                    op![left] => Direction::Left,
-                    op![right] => Direction::Right,
-                    _ => panic!("This should be unreachable."),
-                };
-                return Some((dir, count));
-            },
-            op => if op == dir {
-                count += 1;
-            },
-            _ => return None,
+        if inst == dir {
+            count += 1;
+        } else if inst == op![return] {
+            let dir = match dir {
+                op![left] => Direction::Left,
+                op![right] => Direction::Right,
+                _ => panic!("This should be unreachable."),
+            };
+            return Some((dir, count));
+        } else {
+            return None;
         }
     }
     None
 }
 
-pub struct Program {
-    pub instructions: Box<[Instruction]>,
-}
-
-impl Program {
-
-    pub fn load(source: &str) -> Result<Program, SyntaxError> {
-        // TODO: Add parsing for Noop instructions.
-        use seq::*;
-        let code = lex(source)?;
-        // For when we enter [loops]
-        let mut program = Vec::<Instruction>::new();
-        let mut jump_stack = Vec::<usize>::new();
-        //let Some(current) = loop_stack.first_mut();
-        let mut inst_idx = 0;
-        // I've added the loop variable in case I need to break.
-        'outer: while inst_idx < code.len() {
-            // Each arm handles moving the instruction index.
-            match code[inst_idx] {
-                op![+|-] => {
-                    // Count all +/- opcodes
-                    let mut sum = 0i32;
-                    let mut adds = 0;
-                    while inst_idx < code.len() {
-                        match code[inst_idx] {
-                            op![+] => {
-                                adds += 1;
-                                sum += 1;
-                            }
-                            op![-] => sum -= 1,
-                            _ => break,
+pub fn load(source: &str) -> Result<Box<[Instruction]>, SyntaxError> {
+    // TODO: Add parsing for Noop instructions.
+    use seq::*;
+    let code = lex(source)?;
+    // For when we enter [loops]
+    let mut program = Vec::<Instruction>::new();
+    let mut jump_stack = Vec::<usize>::new();
+    //let Some(current) = loop_stack.first_mut();
+    let mut inst_idx = 0;
+    // I've added the loop variable in case I need to break.
+    'outer: while inst_idx < code.len() {
+        // Each arm handles moving the instruction index.
+        match code[inst_idx] {
+            op![+|-] => {
+                // Count all +/- opcodes
+                let mut sum = 0i32;
+                let mut adds = 0;
+                while inst_idx < code.len() {
+                    match code[inst_idx] {
+                        op![+] => {
+                            adds += 1;
+                            sum += 1;
                         }
-                        inst_idx += 1;
+                        op![-] => sum -= 1,
+                        _ => break,
                     }
-                    // If the sum is zero, that means that the overall result of all the increments
-                    // and decrements is a difference of zero. (+-, -=, ++--, etc.)
-                    if sum == 0 {
-                        program.push(Instruction::Noop(adds, noop![add]))
-                    } else {
-                        program.push(Instruction::Add(sum.rem_euclid(256) as u8));
-                    }
+                    inst_idx += 1;
                 }
-                op![<|>] => {
-                    let mut sum = 0i32;
-                    let mut rights = 0;
-                    while inst_idx < code.len() {
-                        match code[inst_idx] {
-                            op![>] => {
-                                rights += 1;
-                                sum += 1;
-                            }
-                            op![<] => {
-                                sum -= 1;
-                            }
-                            _ => break,
-                        }
-                        inst_idx += 1;
-                    }
-                    match sum {
-                        1 => program.push(Instruction::MoveRight),
-                        -1 => program.push(Instruction::MoveLeft),
-                        0 => program.push(Instruction::Noop(rights, noop![><])),
-                        _ => program.push(Instruction::Move(sum)),
-                    }
+                // If the sum is zero, that means that the overall result of all the increments
+                // and decrements is a difference of zero. (+-, -=, ++--, etc.)
+                if sum == 0 {
+                    program.push(Instruction::Noop(adds, noop![add]))
+                } else {
+                    program.push(Instruction::Add(sum.rem_euclid(256) as u8));
                 }
-                // , or . (read or write)
-                action @ op![read|write] => {
-
-                    let more = code.len() - inst_idx;
-                    if more >= 3
-                    && code[inst_idx+1] == op![right]
-                    && code[inst_idx+2] == action {
-                        inst_idx += 3;
-                        let mut count = 1;
-                        //?>?
-                        while (inst_idx + 2) <= code.len()
-                        && code[inst_idx] == op![right]
-                        && code[inst_idx+1] == action {
-                            count += 1;
-                            inst_idx += 2;
-                        }
-                        program.push(match action {
-                            op![read] => Instruction::ReadBuf(count),
-                            op![write] => Instruction::Writebuf(count),
-                            _ => unreachable!(),
-                        });
-                    } else {
-                        let start = inst_idx;
-                        inst_idx += 1;
-                        while inst_idx < code.len() && code[inst_idx] == action {
-                            inst_idx += 1;
-                        }
-                        let count = inst_idx - start;
-                        program.push(match action {
-                            op![read] => Instruction::Read(count as u32),
-                            op![write] => Instruction::Write(count as u32),
-                            _ => unreachable!(),
-                        });
-                    }
-                }
-                // [
-                op![jump] => {
-                    // There are multiple things that could happen at this point.
-                    // Since there are multiple ways the following tokens can be
-                    // interpreted, we will try our best to test for those cases before hand.
-                    if let Some(length) = check_endread(&code[inst_idx..]) {
-                        program.push(Instruction::EndRead);
-                        inst_idx += length.get();
-                    } else if let Some(length) = check_reset(&code[inst_idx..]) {
-                        program.push(Instruction::Reset);
-                        inst_idx += length.get();
-                    } else if let Some((dir, count)) = check_movetozero(&code[inst_idx..]) {
-                        program.push(Instruction::MoveToZero(dir, count));
-                        inst_idx += (count + 2) as usize;
-                    } else if let Some(length) = check_readline(&code[inst_idx..]) {
-                        program.push(Instruction::ReadLine);
-                        inst_idx += length.get();
-                    } else {
-                        // This means that no special syntax was found.
-                        // If this is the case, we want to push the index of the next instruction
-                        // into the `jump_stack`, which is a vector that is used to help in matching
-                        // of square brackets.
-                        // When the matching close bracket is found, the index of the open bracket is
-                        // popped from `jump_stack`, then the original `JumpZ` instruction is modified
-                        // to include the index of the close bracket. The instruction for the close
-                        // bracket is also pushed into the program, and stores the index of the
-                        // JumpZ instruction.
-                        // which is `program.len()`, then push the JumpZ Instruction into `program`.
-                        // The JumpZ instruction that is pushed to program will later be modified
-                        // to include the matching end brace once that matching end brace is found.
-                        // push the length of the program which represents the index
-                        // of the elements that is pushed on the next line.
-                        jump_stack.push(program.len());
-                        // Temporary variable. This will be modified later.
-                        program.push(Instruction::JumpZ(0));
-                        inst_idx += 1;
-                    }
-                }
-                // ]
-                op![return] => {
-                    // The index of the matching JumpZ instruction exists on the top of
-                    // `jump_stack`.
-                    if let Some(open_idx) = jump_stack.pop() {
-                        let close_idx = program.len();
-                        if let Instruction::JumpZ(jump_idx) = &mut program[open_idx] {
-                            *jump_idx = close_idx as u32;
-                            program.push(Instruction::ReturnIf(open_idx as u32));
-                            inst_idx += 1;
-                        } else {
-                            unreachable!("This shouldn't have happened.");
-                        }
-                    }
-                    else {
-                        // This should be impossible because the code should have already been verified.
-                        panic!("Mismatched bracket.");
-                    }
-                }
-                _ => (),
             }
+            op![<|>] => {
+                let mut sum = 0i32;
+                let mut rights = 0;
+                while inst_idx < code.len() {
+                    match code[inst_idx] {
+                        op![>] => {
+                            rights += 1;
+                            sum += 1;
+                        }
+                        op![<] => {
+                            sum -= 1;
+                        }
+                        _ => break,
+                    }
+                    inst_idx += 1;
+                }
+                match sum {
+                    1 => program.push(Instruction::MoveRight),
+                    -1 => program.push(Instruction::MoveLeft),
+                    0 => program.push(Instruction::Noop(rights, noop![><])),
+                    _ => program.push(Instruction::Move(sum)),
+                }
+            }
+            // , or . (read or write)
+            action @ op![read|write] => {
+
+                let more = code.len() - inst_idx;
+                if more >= 3
+                && code[inst_idx+1] == op![right]
+                && code[inst_idx+2] == action {
+                    inst_idx += 3;
+                    let mut count = 1;
+                    //?>?
+                    while (inst_idx + 2) <= code.len()
+                    && code[inst_idx] == op![right]
+                    && code[inst_idx+1] == action {
+                        count += 1;
+                        inst_idx += 2;
+                    }
+                    program.push(match action {
+                        op![read] => Instruction::ReadBuf(count),
+                        op![write] => Instruction::WriteBuf(count),
+                        _ => unreachable!(),
+                    });
+                } else {
+                    let start = inst_idx;
+                    inst_idx += 1;
+                    while inst_idx < code.len() && code[inst_idx] == action {
+                        inst_idx += 1;
+                    }
+                    let count = inst_idx - start;
+                    program.push(match action {
+                        op![read] => Instruction::Read(count as u32),
+                        op![write] => Instruction::Write(count as u32),
+                        _ => unreachable!(),
+                    });
+                }
+            }
+            // [
+            op![jump] => {
+                if check_endread(&code[inst_idx..]) {
+                    program.push(Instruction::EndRead);
+                    inst_idx += 3;
+                } else if let Some(n) = check_reset_and_assign(&code[inst_idx..]) {
+                    inst_idx += 3;
+                    if n != 0 {
+                        inst_idx += n as usize;
+                        program.push(Instruction::Assign(n));
+                    } else {
+                        inst_idx += 3;
+                        program.push(Instruction::Reset);
+                    }
+                } else if let Some((dir, count)) = check_movetozero(&code[inst_idx..]) {
+                    program.push(Instruction::MoveToZero(dir, count));
+                    inst_idx += (count + 2) as usize;
+                } else if let Some(length) = check_readline(&code[inst_idx..]) {
+                    program.push(Instruction::ReadLine);
+                    inst_idx += length.get();
+                } else {
+                    jump_stack.push(program.len());
+                    // Temporary variable. This will be modified later.
+                    program.push(Instruction::JumpZ(0));
+                    inst_idx += 1;
+                }
+            }
+            // ]
+            op![return] => {
+                // The index of the matching JumpZ instruction exists on the top of
+                // `jump_stack`.
+                if let Some(open_idx) = jump_stack.pop() {
+                    let close_idx = program.len();
+                    if let Instruction::JumpZ(jump_idx) = &mut program[open_idx] {
+                        *jump_idx = (close_idx as u32) + 1;
+                        program.push(Instruction::ReturnIf((open_idx as u32) + 1));
+                        inst_idx += 1;
+                    } else {
+                        unreachable!("This shouldn't have happened.");
+                    }
+                } else {
+                    // This should be impossible because the code should have already been verified.
+                    panic!("Mismatched bracket.");
+                }
+            }
+            _ => (),
         }
-        Ok(Program {
-            instructions: program.into_boxed_slice(),
-        })
     }
+    Ok(program.into_boxed_slice())
 }
+
 
 /// If there was no error, it will return the program op codes.
 fn lex(source: &str) -> Result<Vec<OpCode>, SyntaxError> {
@@ -403,7 +395,10 @@ pub enum Direction {
     Right,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+// TODO:
+//  Set to value: [-]+++
+//  
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Instruction {
     // Moving pointer
     Move(i32), // cell_pointer += move.0
@@ -417,6 +412,8 @@ pub enum Instruction {
     MoveToZero(Direction, u32),
     // Cell Mutation
     Add(u8), // wrapped value of combined +/- instructions
+    // [-]++++
+    Assign(u8),
     // IO
     // Repititions of ',' instructions.
     Read(u32),
@@ -429,7 +426,7 @@ pub enum Instruction {
     // Note: The cell pointer also moves with the count param.
     ReadBuf(u32),
     // .>.>.>.>.
-    Writebuf(u32),
+    WriteBuf(u32),
     // ReadLine syntax:
     // [-]>,[>,]<[<]>
     // First set the current cell to zero, then move right.
@@ -618,7 +615,9 @@ impl  std::fmt::Display for Instruction {
             Instruction::Reset => write!(f, "Instruction::Reset"),
             Instruction::ReturnIf(addr) => write!(f, "Instruction::ReturnIf({addr})"),
             Instruction::Write(count) => write!(f, "Instruction::Write({count})"),
-            Instruction::Writebuf(count) => write!(f, "Instruction::WriteBuf({count})"),
+            Instruction::WriteBuf(count) => write!(f, "Instruction::WriteBuf({count})"),
+            Instruction::Assign(value) => write!(f, "Instruction::Assign({value})"),
+            _ => todo!(),
         }
     }
 }
@@ -655,4 +654,3 @@ impl std::fmt::Display for SyntaxError {
         }
     }
 }
-

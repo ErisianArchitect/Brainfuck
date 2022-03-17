@@ -83,10 +83,51 @@ pub fn bf_read_line() -> String {
     String::from_iter(result.into_iter())
 }
 
+pub trait BrainfuckReader {
+    fn read(&mut self) -> Option<u8>;
+
+    fn read_or(&mut self, default: u8) -> u8 {
+        self.read().unwrap_or(default)
+    }
+
+    fn reset(&mut self) {}
+}
+
+pub trait BrainfuckWriter {
+    fn write(&mut self, value: u8);
+    fn reset(&mut self) {}
+}
+
 pub struct BufferedReader {
     buffer: Option<Vec<u8>>,
     index: usize,
     readfunc: fn() -> String,
+}
+
+impl BrainfuckReader for BufferedReader {
+
+    fn reset(&mut self) {
+        self.buffer = None;
+        self.index = 0;
+    }
+
+    fn read(&mut self) -> Option<u8> {
+        if let Some(ref buffer) = self.buffer {
+            if self.index < buffer.len() {
+                let res = Some(buffer[self.index]);
+                self.index += 1;
+                return res;
+            } else {
+                self.buffer = None;
+                return None;
+            }
+        } else {
+            let readline = self.readfunc;
+            self.buffer = Some(Vec::from_iter(readline().bytes()));
+            self.index = 0;
+            return self.read();
+        }
+    }
 }
 
 impl BufferedReader {
@@ -112,27 +153,10 @@ impl BufferedReader {
         None
     }
 
-    pub fn read(&mut self) -> Option<u8> {
-        if let Some(ref buffer) = self.buffer {
-            if self.index < buffer.len() {
-                let res = Some(buffer[self.index]);
-                self.index += 1;
-                return res;
-            } else {
-                self.buffer = None;
-                return None;
-            }
-        } else {
-            let readline = self.readfunc;
-            self.buffer = Some(Vec::from_iter(readline().bytes()));
-            self.index = 0;
-            return self.read();
-        }
-    }
-
 }
 
 pub fn bf_write_char(chr: char) {
+    use std::{io::Write};
     print!("{}", chr);
     std::io::stdout().flush();
 }
@@ -151,24 +175,15 @@ pub struct Utf8Writer {
     codepoint: u32,
 }
 
-impl Utf8Writer {
+impl BrainfuckWriter for Utf8Writer {
 
-    pub const ERROR_CHAR: char = '�';
-
-    pub fn new() -> Utf8Writer {
-        Utf8Writer::with(bf_write_char)
+    fn reset(&mut self) {
+        self.buffered = 0;
+        self.expect = 0;
+        self.codepoint = 0;
     }
-
-    pub fn with(writefunc: fn(char) -> ()) -> Utf8Writer {
-        Utf8Writer {
-            writeout: writefunc,
-            buffered: 0,
-            expect: 0,
-            codepoint: 0,
-        }
-    }
-
-    pub fn write(&mut self, chr: u8) {
+    
+    fn write(&mut self, chr: u8) {
         // https://en.wikipedia.org/wiki/UTF-8#Encoding
         // If expect is 0, that means that we aren't in the middle of reading a character.
         let writeout = self.writeout;
@@ -217,16 +232,36 @@ impl Utf8Writer {
             }
         }
     }
+    
+}
+
+impl Utf8Writer {
+
+    pub const ERROR_CHAR: char = '�';
+
+    pub fn new() -> Utf8Writer {
+        Utf8Writer::with(bf_write_char)
+    }
+
+    pub fn with(writefunc: fn(char) -> ()) -> Utf8Writer {
+        Utf8Writer {
+            writeout: writefunc,
+            buffered: 0,
+            expect: 0,
+            codepoint: 0,
+        }
+    }
 
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Utf8Writer;
+    use super::{Utf8Writer, BrainfuckWriter};
 
 
     #[test]
     fn test1() {
+        use self::BrainfuckWriter;
         let mut writer = Utf8Writer::new();
         writer.write(225); // 0b11100001
         writer.write(154); // 0b10011010
@@ -263,8 +298,6 @@ fn test() {
     writer.write(cell)
 }
 */
-
-use std::{io::Write, str::Utf8Error};
 
 fn bf_char_hex(chr: u8) -> u8 {
     match chr {
