@@ -59,14 +59,6 @@ macro_rules! noop {
     [add] => { NoopPattern::AddMinus };
     [-+] => { noop![sub] };
     [sub] => { NoopPattern::MinusAdd };
-    // New designs come after this line.
-    [<+--+>] => {};
-    [<-++->] => {};
-    [>-++-<] => {};
-    [>+--+<] => {};
-    [+-<>-+] => {};
-    [-+><+-] => {};
-    [<+-<+->>] => {};
 }
 
 // [-]>,[>,]<[<]>
