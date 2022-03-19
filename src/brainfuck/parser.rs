@@ -1,4 +1,4 @@
-use std::{num::NonZeroUsize, panic};
+use std::{num::NonZeroUsize};
 
 macro_rules! op {
     [<] => {op![left]};
