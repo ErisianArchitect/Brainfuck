@@ -1,5 +1,9 @@
 use std::{num::NonZeroUsize};
 
+/// Used as a shortuct for OpCode enum.
+/// `op![`*shorthand*`]` for a single instruction.
+/// `op![`*item1*, *item2*, *item3*`]` for an array.
+/// `op![`*item1* | *item2* | *item3*`]` for a match arm pattern.
 macro_rules! op {
     [<] => {op![left]};
     [>] => {op![right]};
@@ -30,6 +34,7 @@ macro_rules! op {
     };
 }
 
+/// Used as a shortcut for the NoopPattern enum.
 macro_rules! noop {
     [><] => { noop![bowtie] };
     [bowtie] => { NoopPattern::Bowtie };
@@ -62,6 +67,8 @@ macro_rules! noop {
 }
 
 // [-]>,[>,]<[<]>
+/// Checks that `code` starts with a sequence of OpCodes that can be considered the equivalent
+/// of a readline implementation.
 #[inline(always)]
 fn check_readline(code: &[OpCode]) -> Option<NonZeroUsize> {
     if code.starts_with(seq::READLINE_SEQ) {
@@ -69,9 +76,15 @@ fn check_readline(code: &[OpCode]) -> Option<NonZeroUsize> {
     }
     None
 }
-// [-] or [+]
+
+// [-] or [+] for reset.
+// OR
+// [-/+]+/-* for reset and assign.
+/// Checks that `code` starts with a sequence of OpCodes that can be considered the equivalent
+/// of an implementation of assignment, either to 0, or to a certain value.
 #[inline(always)]
-fn check_reset_and_assign(code: &[OpCode]) -> Option<u8> {
+fn check_reset_and_assign(code: &[OpCode]) -> Option<(u8, u32)> {
+    // [-] or [+]
     if code.len() >= 3
     && code[0] == op![jump]
     && code[2] == op![return]
@@ -80,7 +93,7 @@ fn check_reset_and_assign(code: &[OpCode]) -> Option<u8> {
         // after. If there is, that means that this will be an assignment
         if code.len() >= 4 {
             let mut sum = 0_i32;
-            for &inst in code[3..].iter() {
+            for (i, &inst) in code[3..].iter().enumerate() {
                 match inst {
                     op![add] => sum += 1,
                     op![sub] => sum -= 1,
