@@ -16,7 +16,6 @@ use brainfuck::io::{BufferedReader, BrainfuckReader, BrainfuckWriter, bf_read_li
 use brainfuck::exec::{BasicInterpreter, BrainfuckInterpreter};
 use brainfuck::parser::{self, *};
 
-
 macro_rules! size {
     ($t:ty) => {
         println!("Size of {} is {}", stringify!($t), size_of::<$t>());
@@ -24,12 +23,23 @@ macro_rules! size {
 }
 
 fn main() {
-    //reader_test();
+    //reader_test(); 
     let mut interpreter = BasicInterpreter::new();
     let source = include_str!("sample1.txt");
     if let Err(err) = interpreter.exec(source) {
         println!("{}", err);
     }
+}
+
+#[test]
+fn quick() {
+    let code = &[0,1,2,3,4,5,6,7,8,9];
+    for (i, &inst) in code[3..].iter().enumerate() {
+        if inst == 4 {
+            println!("{}", i);
+        }
+    }
+
 }
 
 fn reader_test() {
