@@ -91,20 +91,23 @@ fn check_reset_and_assign(code: &[OpCode]) -> Option<(u8, u32)> {
     && op![add,sub].contains(&code[1]) {
         // Check whether or not there is an add/sub instruction immediately
         // after. If there is, that means that this will be an assignment
+        let mut size = 3;
         if code.len() >= 4 {
             let mut sum = 0_i32;
             for (i, &inst) in code[3..].iter().enumerate() {
                 match inst {
                     op![add] => sum += 1,
                     op![sub] => sum -= 1,
-                    _ => break,
+                    _ => {
+                        size = i + 3;
+                        break;
+                    },
                 }
             }
-            if sum != 0 {
-                return Some(sum.rem_euclid(256) as u8);
-            }
+            return Some((sum.rem_euclid(256) as u8, size as u32));
+        } else {
+            return Some((0, 3));
         }
-        return Some(0);
     } else {
         None
     }
@@ -242,8 +245,8 @@ pub fn load(source: &str) -> Result<Box<[Instruction]>, SyntaxError> {
                 if check_endread(&code[inst_idx..]) {
                     program.push(Instruction::EndRead);
                     inst_idx += 3;
-                } else if let Some(n) = check_reset_and_assign(&code[inst_idx..]) {
-                    inst_idx += 3;
+                } else if let Some((n, count)) = check_reset_and_assign(&code[inst_idx..]) {
+                    inst_idx += count as usize;
                     if n != 0 {
                         inst_idx += n as usize;
                         program.push(Instruction::Assign(n));
